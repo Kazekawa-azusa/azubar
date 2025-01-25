@@ -1,11 +1,10 @@
 import inspect
 from typing import overload, SupportsIndex, Union, Iterator, Generic, Literal, TypeVar
-import collections.abc as ABC
+from collections.abc import Iterable
 from .helper import Stack, Ansi
 from queue import Queue
 import atexit
 import shutil
-from collections.abc import Iterable
 
 T = TypeVar("T")
 terminal_size = shutil.get_terminal_size(fallback=(80, 24))
@@ -86,7 +85,7 @@ class prange(Generic[T]):
                 self.stop = 1
                 self.step = 1
             case 1:
-                if isinstance(obj[0], ABC.Iterable):
+                if isinstance(obj[0], Iterable):
                     self.obj = enumerate(obj[0])
                     self.start = 0
                     self.stop = len(obj[0])
@@ -105,9 +104,7 @@ class prange(Generic[T]):
             case _:
                 raise TypeError("prange expected 1, 2 or 3 arguments, got {}".format(len(obj)))
         self.title = title
-
-        if self.stop != 0:
-            self.__cout('init')
+        self.__cout('init')
     
     def __eq__(self, obj):
         if isinstance(obj, prange):
@@ -146,7 +143,10 @@ class prange(Generic[T]):
         bar = self.bar
         match task:
             case 'init' | 'loop':
-                return f'[{self.title}]:[{Ansi.BLUE}>%s%s{Ansi.RESET}]{bar.Icon[bar.Icon_i][I%4]}{Ansi.YELLOW}%.2f%% {I}/{Total}{Ansi.RESET}                ' % ('\033[D━>' * int(I*20/Total), ' ' * (20-int(I*20/Total)),float(I/Total*100))
+                if Total == 0:
+                    return f'[{self.title}]:[{Ansi.BLUE}>%s{Ansi.RESET}]{bar.Icon[bar.Icon_i][I%4]}{Ansi.YELLOW}%.2f%% {I}/{Total}{Ansi.RESET}                ' % ('\033[D━>' * int(20),float(100))
+                else:
+                    return f'[{self.title}]:[{Ansi.BLUE}>%s%s{Ansi.RESET}]{bar.Icon[bar.Icon_i][I%4]}{Ansi.YELLOW}%.2f%% {I}/{Total}{Ansi.RESET}                ' % ('\033[D━>' * int(I*20/Total), ' ' * (20-int(I*20/Total)),float(I/Total*100))
             case 'done':
                 return f'[{self.title}]:[{Ansi.GREEN}%s{Ansi.RESET}]{Ansi.YELLOW}DONE {I}/{Total}{Ansi.RESET}               ' % ('━' * int(21))
 
@@ -183,7 +183,7 @@ class prange(Generic[T]):
         print(s, end='',flush=True)
         call_err()
 
-def get_lineno(depth: int= 2):
+def get_lineno(depth: int= 2) -> tuple[int, str]:
     frame = inspect.currentframe()
     for _ in range(depth):
         frame = frame.f_back
