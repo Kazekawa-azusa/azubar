@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='azubar',
-    version='0.0.2',
+    version='0.0.3',
     packages=find_packages(),
     license="MIT",
     install_requires=[],
