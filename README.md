@@ -1,6 +1,9 @@
 # azubar
 A progerss bar creator.
 
+![411804828-765f16b6-c29e-4305-86d7-bf7e8490b16e](https://github.com/user-attachments/assets/143388f7-6392-41f5-a2c6-599c6bc2a36b)
+
+
 ## How to use
 ### Import
 ```
@@ -39,3 +42,8 @@ loop()
   azubar.OPEN_ERR_REMINDER = False # Close the reminder
   azubar.SHOW = False # Hide the azubar
   ```
+  
+## Install
+```
+pip install azubar
+```
