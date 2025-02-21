@@ -33,6 +33,7 @@ loop()
 ```
 ## Warning
 - The terminal must support ANSI escape sequences; otherwise, garbled characters will appear.
+- Please refrain from outputting to the terminal while using `prange`, as this functionality is not supported.
 - The progress bar will be displayed while you create a `prange` object. Please ensure that you create the `prange` object in the appropriate location.
 - If you use `prange` without a for-loop, you need to manually add the correct number of `loop()` calls.
 - `azubar` will remind you of the incorrect use of `prange` and `loop` that you make.

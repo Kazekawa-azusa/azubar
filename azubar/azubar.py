@@ -25,23 +25,25 @@ class AzuBar:
 
 class prange(Generic[T]):
     @overload
-    def __init__(self, *,title:str) -> None: ...
+    def __init__(self, *,title:str, vanish: bool = False) -> None: ...
     @overload
-    def __init__(self, stop: SupportsIndex, /, *,title: str) -> None: ...
+    def __init__(self, stop: SupportsIndex, /, *,title: str, vanish: bool = False) -> None: ...
     @overload
-    def __init__(self, start: SupportsIndex, stop: SupportsIndex, step: SupportsIndex = ..., /, *,title: str) -> None: ...
+    def __init__(self, start: SupportsIndex, stop: SupportsIndex, step: SupportsIndex = ..., /, *,title: str, vanish: bool = False) -> None: ...
     @overload
-    def __init__(self, obj: Iterable[T], /, *, title: str) -> None: ...
+    def __init__(self, obj: Iterable[T], /, *, title: str, vanish: bool = False) -> None: ...
 
-    def __init__(self, *obj: Union[Iterable[T], SupportsIndex] ,title: str):
+    def __init__(self, *obj: Union[Iterable[T], SupportsIndex] ,title: str, vanish: bool = False):
         """Show bars while using
 
         Parameters
         ----------
-        *obj : Iterable, SupportsIndex, Optional
+        *obj : Iterable, SupportsIndex, optional
             Automatically assign to start, stop, step, or obj. by default 1
         title : str
             The name of the bar.
+        vanish : bool, optional
+            While True, ensure that the bar disappears when it reaches the end. by default False
 
         Using
         -----
@@ -75,10 +77,13 @@ class prange(Generic[T]):
         self.id = AzuBar.bars.size()
         self.loc = get_lineno()
         self.title = title if isinstance(title, str) else str(title)
+        if isinstance(vanish, bool):
+            self.vanish = vanish
+        else:
+            raise ValueError("'vanish' should be 'bool'")
 
         # generator
         self.is_generator = False
-        self.g_none = False
         self.g_temp = None
         self.g_end = False
 
@@ -100,6 +105,7 @@ class prange(Generic[T]):
                     try:
                         self.stop = len(obj[0])
                     except TypeError:
+                        # generator
                         self.stop = float('inf')
                         self.is_generator = True
                         try:
@@ -219,6 +225,7 @@ class prange(Generic[T]):
                         print(s, end='',flush=True)
                     print(Ansi.UP*times, end="", flush=True)
                     AzuBar.total = self.id
+                s = head + add + self.__template(task) + tail
 
             case "done":
                 tail = Ansi.UP
@@ -230,8 +237,11 @@ class prange(Generic[T]):
                     print(Ansi.UP*AzuBar.total, end="", flush=True)
                     tail = "\n"
                     AzuBar.total = 0
-
-        s = head + add + self.__template(task) + tail
+                if self.vanish == True and AzuBar.bars.is_empty:
+                    s = "\r" + " "*LINE_LENGTH
+                else:
+                    s = head + add + self.__template(task) + tail
+        
         print(s, end='',flush=True)
         call_err()
 
