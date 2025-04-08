@@ -13,6 +13,18 @@ LINE_COUNT = terminal_size.lines
 OPEN_ERR_REMINDER = True
 SHOW = True
 
+def _type_checker(obj: T, name: str, class_or_tuple: object):
+    if isinstance(obj, class_or_tuple):
+        return obj
+    else:
+        if isinstance(class_or_tuple, tuple):
+            expected_type = ", ".join(cls.__name__ for cls in class_or_tuple)
+        else:
+            expected_type = class_or_tuple.__name__
+
+        err_msg = f"'{name}' should be type '{expected_type}', but got '{type(obj).__name__}'"
+        raise TypeError(err_msg)
+
 class Bar:
     Icon = ['⋮⋰⋯⋱','|/-\\']
     Icon_i = 1
@@ -25,15 +37,15 @@ class AzuBar:
 
 class prange(Generic[T]):
     @overload
-    def __init__(self, *,title:str, vanish: bool = False) -> None: ...
+    def __init__(self, *,title:str, burn: bool = False) -> None: ...
     @overload
-    def __init__(self, stop: SupportsIndex, /, *,title: str, vanish: bool = False) -> None: ...
+    def __init__(self, stop: SupportsIndex, /, *,title: str, burn: bool = False) -> None: ...
     @overload
-    def __init__(self, start: SupportsIndex, stop: SupportsIndex, step: SupportsIndex = ..., /, *,title: str, vanish: bool = False) -> None: ...
+    def __init__(self, start: SupportsIndex, stop: SupportsIndex, step: SupportsIndex = ..., /, *,title: str, burn: bool = False) -> None: ...
     @overload
-    def __init__(self, obj: Iterable[T], /, *, title: str, vanish: bool = False) -> None: ...
+    def __init__(self, obj: Iterable[T], /, *, title: str, burn: bool = False) -> None: ...
 
-    def __init__(self, *obj: Union[Iterable[T], SupportsIndex] ,title: str, vanish: bool = False):
+    def __init__(self, *obj: Union[Iterable[T], SupportsIndex] ,title: str, burn: bool = False):
         """Show bars while using
 
         Parameters
@@ -42,7 +54,7 @@ class prange(Generic[T]):
             Automatically assign to start, stop, step, or obj. by default 1
         title : str
             The name of the bar.
-        vanish : bool, optional
+        burn : bool, optional
             While True, ensure that the bar disappears when it reaches the end. by default False
 
         Using
@@ -76,11 +88,8 @@ class prange(Generic[T]):
         self.bar = Bar()
         self.id = AzuBar.bars.size()
         self.loc = get_lineno()
-        self.title = title if isinstance(title, str) else str(title)
-        if isinstance(vanish, bool):
-            self.vanish = vanish
-        else:
-            raise ValueError("'vanish' should be 'bool'")
+        self.title = _type_checker(title,'title',str)
+        self.burn = _type_checker(burn, 'burn', bool)
 
         # generator
         self.is_generator = False
@@ -237,7 +246,7 @@ class prange(Generic[T]):
                     print(Ansi.UP*AzuBar.total, end="", flush=True)
                     tail = "\n"
                     AzuBar.total = 0
-                if self.vanish == True and AzuBar.bars.is_empty:
+                if self.burn == True and AzuBar.bars.is_empty:
                     s = "\r" + " "*LINE_LENGTH
                 else:
                     s = head + add + self.__template(task) + tail
@@ -266,6 +275,7 @@ def loop(repeat: int= 1):
         - loop() should not be used with for-loop, as for-loop will automatically update the progress bar.
         - loop() is solely responsible for updating the progress bar and does not handle the object's value.
     """
+    _type_checker(repeat, 'repeat', int)
     for _ in range(repeat):
         if AzuBar.bars.is_empty == True:
             if OPEN_ERR_REMINDER == False: continue

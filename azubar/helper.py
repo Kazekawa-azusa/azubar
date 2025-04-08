@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, Callable, ParamSpec, TypeVar, cast, Any
 T = TypeVar("T")
 
 class Stack(Generic[T]):
@@ -11,7 +11,7 @@ class Stack(Generic[T]):
         if isinstance(initial_data, Iterable):
             self.stack = list(initial_data)
         else:
-            raise NotImplementedError('Initial data was not iterable data')
+            raise NotImplementedError('Initial data must be iterable')
     def __repr__(self):
         return "Stack(initial_data={!r})".format(self.initial_data)
     
