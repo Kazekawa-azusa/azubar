@@ -7,7 +7,7 @@ import atexit
 import shutil
 
 T = TypeVar("T")
-terminal_size = shutil.get_terminal_size(fallback=(80, 24))
+terminal_size = shutil.get_terminal_size(fallback=(80, 4))
 LINE_LENGTH = terminal_size.columns
 LINE_COUNT = terminal_size.lines
 OPEN_ERR_REMINDER = True
@@ -205,9 +205,9 @@ class prange(Generic[T]):
         match task:
             case 'init' | 'loop':
                 if Total == 0:
-                    return f'[{self.title}]:[{Ansi.BLUE}>%s{Ansi.RESET}]{bar.Icon[bar.Icon_i][I%4]}{Ansi.YELLOW}%.2f%% {I}/{Total}{Ansi.RESET}                ' % ('\033[D━>' * int(20),float(100))
+                    return f'[{self.title}]:[{Ansi.BLUE}>%s{Ansi.RESET}]{bar.Icon[bar.Icon_i][I%4]}{Ansi.YELLOW}%.2f%% {I}/{Total}{Ansi.RESET}                ' % ('\033[D━>' * int(30),float(100))
                 else:
-                    return f'[{self.title}]:[{Ansi.BLUE}>%s%s{Ansi.RESET}]{bar.Icon[bar.Icon_i][I%4]}{Ansi.YELLOW}%.2f%% {I}/{Total}{Ansi.RESET}                ' % ('\033[D━>' * int(I*20/Total), ' ' * (20-int(I*20/Total)),float(I/Total*100))
+                    return f'[{self.title}]:[{Ansi.BLUE}>%s%s{Ansi.RESET}]{bar.Icon[bar.Icon_i][I%4]}{Ansi.YELLOW}%.2f%% {I}/{Total}{Ansi.RESET}                ' % ('\033[D━>' * int(I*30/Total), ' ' * (30-int(I*30/Total)),float(I/Total*100))
             case 'done':
                 return f'[{self.title}]:[{Ansi.GREEN}%s{Ansi.RESET}]{Ansi.YELLOW}DONE {I}/{Total}{Ansi.RESET}               ' % ('━' * int(21))
 
@@ -280,13 +280,13 @@ def loop(repeat: int= 1):
         if AzuBar.bars.is_empty == True:
             if OPEN_ERR_REMINDER == False: continue
             line_number, filename = get_lineno()
-            AzuBar.err.put((line_number,2,f'Err in "{filename}"\n  Line {line_number}: Wrong amount of loop().'))
+            AzuBar.err.put((line_number,2,f'Err in "{filename}", line {line_number}:\n  Wrong amount of loop().'))
         else:
             self = AzuBar.bars.top()
             if self.auto == True:
                 if OPEN_ERR_REMINDER == False: continue
                 line_number, filename = get_lineno()
-                AzuBar.err.put((line_number,3, f'Err in "{filename}"\n  Line {line_number}: loop() is for prange that is not in a for-loop.'))
+                AzuBar.err.put((line_number,3, f'Err in "{filename}", line {line_number}:\n  loop() is for prange that is not in a for-loop.'))
             else:
                 self.start += 1
                 try:
@@ -320,7 +320,7 @@ def inexit():
     if OPEN_ERR_REMINDER == False: return
     while not AzuBar.bars.empty():
         self = AzuBar.bars.pop()
-        AzuBar.err.put((self.loc[0], 4, f'Err in "{self.loc[1]}"\n  Line {self.loc[0]}: prange( title= "{self.title}" ) didn\'t close.'))
+        AzuBar.err.put((self.loc[0], 4, f'Err in "{self.loc[1]}", line {self.loc[0]}:\n  prange( title= "{self.title}" ) didn\'t close.'))
     call_err()
 
 atexit.register(inexit)
