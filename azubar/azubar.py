@@ -37,15 +37,15 @@ class AzuBar:
 
 class prange(Generic[T]):
     @overload
-    def __init__(self, *,title:str, burn: bool = False) -> None: ...
+    def __init__(self, *,title:str, burn: bool = False, total: int | None = None) -> None: ...
     @overload
-    def __init__(self, stop: SupportsIndex, /, *,title: str, burn: bool = False) -> None: ...
+    def __init__(self, stop: SupportsIndex, /, *,title: str, burn: bool = False, total: int | None = None) -> None: ...
     @overload
-    def __init__(self, start: SupportsIndex, stop: SupportsIndex, step: SupportsIndex = ..., /, *,title: str, burn: bool = False) -> None: ...
+    def __init__(self, start: SupportsIndex, stop: SupportsIndex, step: SupportsIndex = ..., /, *,title: str, burn: bool = False, total: int | None = None) -> None: ...
     @overload
-    def __init__(self, obj: Iterable[T], /, *, title: str, burn: bool = False) -> None: ...
+    def __init__(self, obj: Iterable[T], /, *, title: str, burn: bool = False, total: int | None = None) -> None: ...
 
-    def __init__(self, *obj: Union[Iterable[T], SupportsIndex] ,title: str, burn: bool = False):
+    def __init__(self, *obj: Union[Iterable[T], SupportsIndex] ,title: str, burn: bool = False, total: int | None = None):
         """Show bars while using
 
         Parameters
@@ -56,6 +56,8 @@ class prange(Generic[T]):
             The name of the bar.
         burn : bool, optional
             While True, ensure that the bar disappears when it reaches the end. by default False
+        total : int, optional
+            Set the size of the bar when the `obj` is a generator; otherwise, do nothing.
 
         Using
         -----
@@ -115,8 +117,11 @@ class prange(Generic[T]):
                         self.stop = len(obj[0])
                     except TypeError:
                         # generator
-                        self.stop = float('inf')
                         self.is_generator = True
+                        if total is None:
+                            self.stop = float('inf')
+                        else:
+                            self.stop = total
                         try:
                             index, self.g_temp = next(self.obj)
                         except StopIteration:
@@ -171,7 +176,7 @@ class prange(Generic[T]):
             case True:
                 self.__cout('loop')
                 self.start += self.step
-                self.stop = self.start + 1
+                self.stop = self.stop if self.stop > self.start and self.stop != float('inf') else self.start + 1
                 if self.g_end == True:
                     self.start -= 1
                     self.stop = self.start
@@ -209,7 +214,7 @@ class prange(Generic[T]):
                 else:
                     return f'[{self.title}]:[{Ansi.BLUE}>%s%s{Ansi.RESET}]{bar.Icon[bar.Icon_i][I%4]}{Ansi.YELLOW}%.2f%% {I}/{Total}{Ansi.RESET}                ' % ('\033[D━>' * int(I*30/Total), ' ' * (30-int(I*30/Total)),float(I/Total*100))
             case 'done':
-                return f'[{self.title}]:[{Ansi.GREEN}%s{Ansi.RESET}]{Ansi.YELLOW}DONE {I}/{Total}{Ansi.RESET}               ' % ('━' * int(21))
+                return f'[{self.title}]:[{Ansi.GREEN}%s{Ansi.RESET}]{Ansi.YELLOW}DONE {I}/{Total}{Ansi.RESET}               ' % ('━' * int(31))
 
     def __cout(self, task: Literal["init","loop","done"]) -> None:
         """print control"""
