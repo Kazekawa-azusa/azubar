@@ -203,17 +203,26 @@ class prange(Generic[T]):
                     self.__cout('done')
                     raise StopIteration
     
-    def __format_float(self, value: float, width: int = 5, decimals: int = 0) -> str:
+    def __format_num(self, value: float | int, width: int = 5, decimals: int = 0, just: Literal['left', 'right'] = 'right') -> str:
         raw = f"{value:.{decimals}f}"
         trimmed = raw.rstrip(' ').rstrip('.')
-        return trimmed.rjust(width)
+        match just:
+            case 'left':
+                return trimmed.ljust(width)
+            case 'right':
+                return trimmed.rjust(width)
+            case _:
+                return trimmed.rjust(width)
     
     def __fill(self, outer_len):
         format_str = self.bar_format
-        len_i = len(str(self.stop))
-        format_str = format_str.pformat(**ANSI_DICT, title= self.title, i=self.__format_float(self.start,len_i), total=self.stop)
+        try:
+            self.__len_i = max(len(str(self.stop)), self.__len_i)
+        except AttributeError:
+            self.__len_i = len(str(self.stop))
+        format_str = format_str.pformat(**ANSI_DICT, title= self.title, i=self.__format_num(self.start,self.__len_i), total=self.__format_num(self.stop,self.__len_i, just='left'))
         if self.stop == 0:
-            format_str = format_str.pformat(ratio= f'{(0):6.2f}')
+            format_str = format_str.pformat(ratio= f'{(100):6.2f}')
         else:
             format_str = format_str.pformat(ratio= f'{(self.start*100/self.stop):6.2f}')
         format_str = format_str.pformat(spinner=" ") if self.start == self.stop else format_str.pformat(spinner= self.spinner.make(self.start, self.stop))
@@ -249,7 +258,7 @@ class prange(Generic[T]):
                         print(s, end='',flush=True)
                     print(Ansi.UP*times, end="", flush=True)
                     AzuBar.total = self.id
-                s = head + add + self.__template(task, len(add)) + tail
+                s = head + add + self.__template(task, self.id*2) + tail
 
             case "done":
                 tail = Ansi.UP
