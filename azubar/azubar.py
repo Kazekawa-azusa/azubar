@@ -81,7 +81,7 @@ class prange(Generic[T]):
                 In this case, the prange run 3 times, so 3 loop() is needed.
         """
         self.auto = False
-        self.bar = BarLike(f'{Ansi.GREEN}━{Ansi.RESET}',' ',f"{Ansi.BLUE}>{Ansi.RESET}") if bar_style is None else bar_style
+        self.bar = BarLike(f'{Ansi.BLUE}━{Ansi.RESET}',' ',f"{Ansi.BLUE}>{Ansi.RESET}",f'{Ansi.GREEN}━{Ansi.RESET}') if bar_style is None else bar_style
         self.spinner = SpinnerLike('|/-\\') if spinner_style is None else spinner_style
         self.id = AzuBar.bars.size()
         self.loc = get_lineno()
@@ -208,20 +208,23 @@ class prange(Generic[T]):
         trimmed = raw.rstrip(' ').rstrip('.')
         return trimmed.rjust(width)
     
-    def __fill(self):
+    def __fill(self, outer_len):
         format_str = self.bar_format
         len_i = len(str(self.stop))
         format_str = format_str.pformat(**ANSI_DICT, title= self.title, i=self.__format_float(self.start,len_i), total=self.stop)
-        format_str = format_str.pformat(ratio= f'{(self.start*100/self.stop):6.2f}')
+        if self.stop == 0:
+            format_str = format_str.pformat(ratio= f'{(0):6.2f}')
+        else:
+            format_str = format_str.pformat(ratio= f'{(self.start*100/self.stop):6.2f}')
         format_str = format_str.pformat(spinner=" ") if self.start == self.stop else format_str.pformat(spinner= self.spinner.make(self.start, self.stop))
-        lenth = actual_len(format_str) - 4 # {bar}
+        lenth = actual_len(format_str) + outer_len - 4 # {bar}
         format_str = format_str.format(bar=self.bar.make(self.start, self.stop, LINE_LENGTH-lenth))
         return format_str
 
-    def __template(self, task: Literal["init","loop","done"]) -> str:
+    def __template(self, task: Literal["init","loop","done"], outer_len: int) -> str:
         match task:
             case 'init' | 'loop' | 'done':
-                return self.__fill()
+                return self.__fill(outer_len)
 
     def __cout(self, task: Literal["init","loop","done"]) -> None:
         """print control"""
@@ -246,7 +249,7 @@ class prange(Generic[T]):
                         print(s, end='',flush=True)
                     print(Ansi.UP*times, end="", flush=True)
                     AzuBar.total = self.id
-                s = head + add + self.__template(task) + tail
+                s = head + add + self.__template(task, len(add)) + tail
 
             case "done":
                 tail = Ansi.UP
@@ -261,7 +264,7 @@ class prange(Generic[T]):
                 if self.burn == True and AzuBar.bars.is_empty:
                     s = "\r" + " "*LINE_LENGTH
                 else:
-                    s = head + add + self.__template(task) + tail
+                    s = head + add + self.__template(task, len(add)) + tail
         
         print(s, end='',flush=True)
         call_err()
