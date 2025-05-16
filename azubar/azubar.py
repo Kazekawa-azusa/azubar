@@ -1,51 +1,39 @@
 import inspect
 from typing import overload, SupportsIndex, Union, Iterator, Generic, Literal, TypeVar
 from collections.abc import Iterable
-from .helper import Stack, Ansi
+
+from azubar.bars import _Formatter, BarLike, SpinnerLike, actual_len
+from .helper import ANSI_DICT, Stack, Ansi, _type_checker
 from queue import Queue
 import atexit
 import shutil
 
-T = TypeVar("T")
+__all__ = ['prange', 'loop']
+
 terminal_size = shutil.get_terminal_size(fallback=(80, 4))
 LINE_LENGTH = terminal_size.columns
 LINE_COUNT = terminal_size.lines
 OPEN_ERR_REMINDER = True
 SHOW = True
 
-def _type_checker(obj: T, name: str, class_or_tuple: object):
-    if isinstance(obj, class_or_tuple):
-        return obj
-    else:
-        if isinstance(class_or_tuple, tuple):
-            expected_type = ", ".join(cls.__name__ for cls in class_or_tuple)
-        else:
-            expected_type = class_or_tuple.__name__
-
-        err_msg = f"'{name}' should be type '{expected_type}', but got '{type(obj).__name__}'"
-        raise TypeError(err_msg)
-
-class Bar:
-    Icon = ['⋮⋰⋯⋱','|/-\\']
-    Icon_i = 1
-    Style = [['>','\033[D━>','━',' '],['','█','█',' ']]
-
 class AzuBar:
     bars: Stack["prange"] = Stack()
     total = 0
     err: Queue[tuple[int, int, str]] = Queue()
 
+T = TypeVar("T")
+
 class prange(Generic[T]):
     @overload
-    def __init__(self, *,title:str, burn: bool = False, total: int | None = None) -> None: ...
+    def __init__(self, *,title:str, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None) -> None: ...
     @overload
-    def __init__(self, stop: SupportsIndex, /, *,title: str, burn: bool = False, total: int | None = None) -> None: ...
+    def __init__(self, stop: SupportsIndex, /, *,title: str, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None) -> None: ...
     @overload
-    def __init__(self, start: SupportsIndex, stop: SupportsIndex, step: SupportsIndex = ..., /, *,title: str, burn: bool = False, total: int | None = None) -> None: ...
+    def __init__(self, start: SupportsIndex, stop: SupportsIndex, step: SupportsIndex = ..., /, *,title: str, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None) -> None: ...
     @overload
-    def __init__(self, obj: Iterable[T], /, *, title: str, burn: bool = False, total: int | None = None) -> None: ...
+    def __init__(self, obj: Iterable[T], /, *, title: str, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None) -> None: ...
 
-    def __init__(self, *obj: Union[Iterable[T], SupportsIndex] ,title: str, burn: bool = False, total: int | None = None):
+    def __init__(self, *obj: Union[Iterable[T], SupportsIndex] ,title: str, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None):
         """Show bars while using
 
         Parameters
@@ -58,6 +46,12 @@ class prange(Generic[T]):
             While True, ensure that the bar disappears when it reaches the end. by default False
         total : int, optional
             Set the size of the bar when the `obj` is a generator; otherwise, do nothing.
+        bar_style : _BarLike, optional
+            The style of the bar.
+        spinner_style : _SpinnerLike, optional
+            The style of the spinner.
+        bar_format: dict, optional
+            The format of the bar.
 
         Using
         -----
@@ -87,7 +81,8 @@ class prange(Generic[T]):
                 In this case, the prange run 3 times, so 3 loop() is needed.
         """
         self.auto = False
-        self.bar = Bar()
+        self.bar = BarLike(f'{Ansi.GREEN}━{Ansi.RESET}',' ',f"{Ansi.BLUE}>{Ansi.RESET}") if bar_style is None else bar_style
+        self.spinner = SpinnerLike('|/-\\') if spinner_style is None else spinner_style
         self.id = AzuBar.bars.size()
         self.loc = get_lineno()
         self.title = _type_checker(title,'title',str)
@@ -146,6 +141,11 @@ class prange(Generic[T]):
             self.__cout('done')
         else:
             self.__cout('init')
+
+    @property
+    def bar_format(self) -> _Formatter:
+        """format dict"""
+        return _Formatter('[{title}]:[{bar}]{spinner}{YELLOW}{ratio}% {i}/{total}{RESET}')
     
     def __eq__(self, obj):
         if isinstance(obj, prange):
@@ -202,19 +202,26 @@ class prange(Generic[T]):
                 else:
                     self.__cout('done')
                     raise StopIteration
+    
+    def __format_float(self, value: float, width: int = 5, decimals: int = 0) -> str:
+        raw = f"{value:.{decimals}f}"
+        trimmed = raw.rstrip(' ').rstrip('.')
+        return trimmed.rjust(width)
+    
+    def __fill(self):
+        format_str = self.bar_format
+        len_i = len(str(self.stop))
+        format_str = format_str.pformat(**ANSI_DICT, title= self.title, i=self.__format_float(self.start,len_i), total=self.stop)
+        format_str = format_str.pformat(ratio= f'{(self.start*100/self.stop):6.2f}')
+        format_str = format_str.pformat(spinner=" ") if self.start == self.stop else format_str.pformat(spinner= self.spinner.make(self.start, self.stop))
+        lenth = actual_len(format_str) - 4 # {bar}
+        format_str = format_str.format(bar=self.bar.make(self.start, self.stop, LINE_LENGTH-lenth))
+        return format_str
 
     def __template(self, task: Literal["init","loop","done"]) -> str:
-        I = self.start
-        Total = self.stop
-        bar = self.bar
         match task:
-            case 'init' | 'loop':
-                if Total == 0:
-                    return f'[{self.title}]:[{Ansi.BLUE}>%s{Ansi.RESET}]{bar.Icon[bar.Icon_i][I%4]}{Ansi.YELLOW}%.2f%% {I}/{Total}{Ansi.RESET}                ' % ('\033[D━>' * int(30),float(100))
-                else:
-                    return f'[{self.title}]:[{Ansi.BLUE}>%s%s{Ansi.RESET}]{bar.Icon[bar.Icon_i][I%4]}{Ansi.YELLOW}%.2f%% {I}/{Total}{Ansi.RESET}                ' % ('\033[D━>' * int(I*30/Total), ' ' * (30-int(I*30/Total)),float(I/Total*100))
-            case 'done':
-                return f'[{self.title}]:[{Ansi.GREEN}%s{Ansi.RESET}]{Ansi.YELLOW}DONE {I}/{Total}{Ansi.RESET}               ' % ('━' * int(31))
+            case 'init' | 'loop' | 'done':
+                return self.__fill()
 
     def __cout(self, task: Literal["init","loop","done"]) -> None:
         """print control"""

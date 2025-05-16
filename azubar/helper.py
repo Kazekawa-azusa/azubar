@@ -2,6 +2,18 @@ from collections.abc import Iterable
 from typing import Generic, TypeVar, Callable, ParamSpec, TypeVar, cast, Any
 T = TypeVar("T")
 
+def _type_checker(obj: T, name: str, class_or_tuple: object):
+    if isinstance(obj, class_or_tuple):
+        return obj
+    else:
+        if isinstance(class_or_tuple, tuple):
+            expected_type = ", ".join(cls.__name__ for cls in class_or_tuple)
+        else:
+            expected_type = class_or_tuple.__name__
+
+        err_msg = f"'{name}' should be type '{expected_type}', but got '{type(obj).__name__}'"
+        raise TypeError(err_msg)
+
 class Stack(Generic[T]):
     def __init__(self, initial_data: T = None):
         self.stack = []
@@ -64,3 +76,9 @@ class Ansi():
     SET       = '\033[y;xH'
     CLS       = '\033[2J'
     BOLD      = "\033[1m"
+
+ANSI_DICT = {
+    key: value
+    for key, value in vars(Ansi).items()
+    if not key.startswith("__")
+}
