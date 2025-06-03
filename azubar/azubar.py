@@ -1,5 +1,5 @@
 import inspect
-from typing import overload, SupportsIndex, Union, Iterator, Generic, Literal, TypeVar
+from typing import get_args, overload, SupportsIndex, Union, Iterator, Generic, Literal, TypeVar
 from collections.abc import Iterable
 
 from azubar.bars import _Formatter, BarLike, SpinnerLike, actual_len
@@ -21,7 +21,9 @@ class AzuBar:
     total = 0
     err: Queue[tuple[int, int, str]] = Queue()
 
-ERRS = Literal['warning','notice']
+ERRS = Literal['warning', 'notice']
+_Status = Literal['done', 'miss', 'over']
+IGNORE_ERR: ERRS = None
 T = TypeVar("T")
 
 class prange(Generic[T]):
@@ -88,7 +90,19 @@ class prange(Generic[T]):
         self.loc = get_lineno()
         self.title = _type_checker(title,'title',str)
         self.burn = _type_checker(burn, 'burn', bool)
-        self.ignor_err = '' if ignore_err is None else ignore_err
+        self.status = 'done'
+        self.ignor_err = tuple()
+        for err in (ignore_err, IGNORE_ERR):
+            match err:
+                case None:
+                    pass
+                case str():
+                    self.ignor_err += (err,)
+                case err if isinstance(err, Iterable):
+                    self.ignor_err += tuple((i for i in err))
+                case _:
+                    err_msg = f"'{ignore_err}' should be type 'None, str, Iterable', but got '{type(ignore_err).__name__}'"
+                    raise TypeError(err_msg)
 
         # generator
         self.is_generator = False
@@ -234,7 +248,8 @@ class prange(Generic[T]):
             format_str = format_str.pformat(ratio= f'{(self.start*100/self.stop):6.2f}')
         format_str = format_str.pformat(spinner=" ") if self.start == self.stop else format_str.pformat(spinner= self.spinner.make(self.start, self.stop))
         lenth = actual_len(format_str) + outer_len - 4 # {bar}
-        format_str = format_str.format(bar=self.bar.make(self.start, self.stop, LINE_LENGTH-lenth))
+        format_str = format_str.format(bar=self.bar.make(self.start, self.stop, LINE_LENGTH-lenth, self.status))
+        self.status = 'done'
         return format_str
 
     def __template(self, task: Literal["init","loop","done"], outer_len: int) -> str:
@@ -283,7 +298,7 @@ class prange(Generic[T]):
                 if self.burn == True and AzuBar.bars.size() == 1:
                     s = "\r" + " "*LINE_LENGTH
                 else:
-                    while AzuBar.bars.top() != self.id:
+                    while AzuBar.bars.top() != self.id: # deal with unclosed nested bar
                         s = "\r" + " "*LINE_LENGTH
                         print(s, end=Ansi.UP, flush=True)
                         AzuBar.bars.pop()
@@ -302,7 +317,7 @@ def get_lineno(depth: int= 2) -> tuple[int, str]:
     filename = inspect.getfile(frame)
     return line_number, filename
 
-def loop(repeat: int= 1):
+def loop(repeat: int= 1, status: _Status= 'done'):
     """Update the the prange runs out of a for-loop
 
     Parameters
@@ -315,6 +330,8 @@ def loop(repeat: int= 1):
         - loop() is solely responsible for updating the progress bar and does not handle the object's value.
     """
     _type_checker(repeat, 'repeat', int)
+    _type_checker(status, 'status', str)
+    if status not in get_args(_Status): raise ValueError(f"'status' must be '{', '.join(get_args(_Status))}'")
     ignor_err = ''
     for _ in range(repeat):
         if AzuBar.bars.is_empty == True:
@@ -331,6 +348,7 @@ def loop(repeat: int= 1):
             else:
                 self.start += 1
                 try:
+                    self.status = status
                     next(self)
                 except StopIteration:
                     pass
