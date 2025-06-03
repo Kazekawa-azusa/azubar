@@ -261,7 +261,11 @@ class prange(Generic[T]):
                 elif AzuBar.total > self.id:
                     times = AzuBar.total - self.id
                     for _ in range(times):
-                        s = "\n" + " "*LINE_LENGTH
+                        if AzuBar.bars.top() != self.id:
+                            AzuBar.bars.pop()
+                            s = '\r' + " "*LINE_LENGTH
+                        else:
+                            s = "\n" + " "*LINE_LENGTH
                         print(s, end='',flush=True)
                     print(Ansi.UP*times, end="", flush=True)
                     AzuBar.total = self.id
@@ -269,18 +273,22 @@ class prange(Generic[T]):
 
             case "done":
                 tail = Ansi.UP
-                AzuBar.bars.pop()
-                if AzuBar.bars.is_empty:
+                if AzuBar.bars.size() == 1:
                     for _ in range(AzuBar.total):
                         s = "\n" + " "*LINE_LENGTH
                         print(s, end='',flush=True)
                     print(Ansi.UP*AzuBar.total, end="", flush=True)
                     tail = "\n"
                     AzuBar.total = 0
-                if self.burn == True and AzuBar.bars.is_empty:
+                if self.burn == True and AzuBar.bars.size() == 1:
                     s = "\r" + " "*LINE_LENGTH
                 else:
+                    while AzuBar.bars.top() != self.id:
+                        s = "\r" + " "*LINE_LENGTH
+                        print(s, end=Ansi.UP, flush=True)
+                        AzuBar.bars.pop()
                     s = head + add + self.__template(task, len(add)) + tail
+                AzuBar.bars.pop()
         
         print(s, end='',flush=True)
         call_err()
@@ -307,13 +315,15 @@ def loop(repeat: int= 1):
         - loop() is solely responsible for updating the progress bar and does not handle the object's value.
     """
     _type_checker(repeat, 'repeat', int)
+    ignor_err = ''
     for _ in range(repeat):
         if AzuBar.bars.is_empty == True:
             if OPEN_ERR_REMINDER == False: continue
             line_number, filename = get_lineno()
-            if 'warning' not in self.ignor_err: AzuBar.err.put((line_number,2,f'Err in "{filename}", line {line_number}:\n  Wrong amount of loop().'))
+            if 'warning' not in ignor_err: AzuBar.err.put((line_number,2,f'Err in "{filename}", line {line_number}:\n  Wrong amount of loop().'))
         else:
             self = AzuBar.bars.top()
+            ignor_err = self.ignor_err
             if self.auto == True:
                 if OPEN_ERR_REMINDER == False: continue
                 line_number, filename = get_lineno()
