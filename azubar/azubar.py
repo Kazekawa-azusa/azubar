@@ -159,6 +159,10 @@ class prange(Generic[T]):
             self.__cout('done')
         else:
             self.__cout('init')
+    
+    def __len__(self):
+        # if self.is_generator == True and self.g_stop is None:
+        return self.stop
 
     @property
     def bar_format(self) -> _Formatter:
@@ -246,9 +250,9 @@ class prange(Generic[T]):
             format_str = format_str.pformat(ratio= f'{(100):6.2f}')
         else:
             format_str = format_str.pformat(ratio= f'{(self.start*100/self.stop):6.2f}')
-        format_str = format_str.pformat(spinner=" ") if self.start == self.stop else format_str.pformat(spinner= self.spinner.make(self.start, self.stop))
+        format_str = format_str.pformat(spinner=" ") if self.start == self.stop else format_str.pformat(spinner= self.spinner.make())
         lenth = actual_len(format_str) + outer_len - 4 # {bar}
-        format_str = format_str.format(bar=self.bar.make(self.start, self.stop, LINE_LENGTH-lenth, self.status))
+        format_str = format_str.format(bar=self.bar.make(self.start, self.stop,LINE_LENGTH-lenth))
         self.status = 'done'
         return format_str
 
