@@ -7,6 +7,8 @@ from .helper import ANSI_DICT, Stack, Ansi, _type_checker
 from queue import Queue
 import atexit
 import shutil
+import re
+from wcwidth import wcswidth
 
 __all__ = ['prange', 'loop']
 
@@ -15,6 +17,16 @@ LINE_LENGTH = terminal_size.columns
 LINE_COUNT = terminal_size.lines
 OPEN_ERR_REMINDER = True
 SHOW = True
+
+def real_terminal_len(text: str) -> int:
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    clean_text = ansi_escape.sub('', text)
+    
+    clean_text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', clean_text)
+    
+    width = wcswidth(clean_text)
+    
+    return width if width >= 0 else len(clean_text)
 
 class AzuBar:
     bars: Stack["prange"] = Stack()
@@ -251,7 +263,7 @@ class prange(Generic[T]):
         else:
             format_str = format_str.pformat(ratio= f'{(self.start*100/self.stop):6.2f}')
         format_str = format_str.pformat(spinner=" ") if self.start == self.stop else format_str.pformat(spinner= self.spinner.make())
-        lenth = actual_len(format_str) + outer_len - 4 # {bar}
+        lenth = real_terminal_len(format_str) + outer_len - 4 # {bar}
         format_str = format_str.format(bar=self.bar.make(self.start, self.stop,LINE_LENGTH-lenth))
         self.status = 'done'
         return format_str
