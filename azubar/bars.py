@@ -1,8 +1,10 @@
 from collections.abc import Iterable
 import re
+from typing import Literal
 from azubar.helper import Ansi
 from itertools import cycle
 import string
+_Status = Literal['done', 'miss', 'over']
 
 class  _PartialFormatter(string.Formatter):
     def __init__(self, missing_format='{{{key}}}'):
@@ -70,17 +72,21 @@ class BarLike():
                  right: str | Iterable[str] = " ",
                  mid: str | Iterable[str] = '',
                  end_left: str | Iterable[str] | None = None,
+                 miss: str | Iterable[str] | None = None,
                  ):
         self.bar_l = left
         self.bar_m = mid
         self.bar_r = right
         self.end_l = left if end_left is None else end_left
+        self.miss = left if miss is None else miss
     
     def make(self, start: int, stop: int, length: int = 20):
         l_len = int(start/stop*length) if stop > start else length
-        r_len = length - actual_len(self.bar_m) - l_len
         bar = f'{self.end_l*l_len}' if start == stop else f'{self.bar_l*l_len}'
-        bar += f'{self.bar_m}' if stop > start else ''
+
+        m_len = actual_len(self.bar_m)
+        bar += self.bar_m if stop > start else ''
+        r_len = length - l_len - m_len
         bar += f'{self.bar_r*r_len}'
         return bar
     

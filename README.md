@@ -37,11 +37,12 @@ loop()
 - The progress bar will be displayed while you create a `prange` object. Please ensure that you create the `prange` object in the appropriate location.
 - If you use `prange` without a for-loop, you need to manually add the correct number of `loop()` calls.
 - `azubar` will remind you of the incorrect use of `prange` and `loop` that you make.
-- If you would like to opt out of receiving reminders or hide the bars, please use the code provided below.
+- If you would like to opt out of receiving reminders, hide the bars, or others, please use the code provided below.
   ```
   from azubar import azubar
   azubar.OPEN_ERR_REMINDER = False # Close the reminder
   azubar.SHOW = False # Hide the azubar
+  azubar.IGNORE_ERR = 'warning'
   ```
   
 ## Install
