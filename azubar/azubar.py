@@ -360,17 +360,15 @@ class prange(Generic[T]):
                 if AzuBar.bars.top() == self.id and task == 'init' and self.id != 0:
                     add = "\n" + add
                 while AzuBar.bars.top() != self.id:
-                    s = "\r" + " "*LINE_LENGTH
-                    print(s, end=Ansi.UP, flush=True)
+                    render_buffer += "\r" + " "*LINE_LENGTH + Ansi.UP
                     AzuBar.bars.pop()
                     AzuBar.total -= 1  
                 
                 if AzuBar.bars.top() == self.id:
                     count = AzuBar.max - self.id
-                    print("\n"*count, end="", flush=True)
+                    render_buffer += "\n"*count
                     for _ in range(count):
-                        s = "\r" + " "*LINE_LENGTH
-                        print(s, end=Ansi.UP, flush=True)
+                        render_buffer += "\r" + " "*LINE_LENGTH + Ansi.UP
                     
                 s = head + add + self.__template(task, self.id*2) + tail
                 AzuBar.total = self.id
@@ -379,14 +377,12 @@ class prange(Generic[T]):
                 tail = Ansi.UP
                 if self.id == 0:
                     count = AzuBar.max - self.id
-                    print("\n"*count, end="", flush=True)
+                    render_buffer += "\n"*count
                     for _ in range(count):
-                        s = "\r" + " "*LINE_LENGTH
-                        print(s, end=Ansi.UP, flush=True)
+                        render_buffer += "\r" + " "*LINE_LENGTH + Ansi.UP
                     for _ in range(AzuBar.total):
-                        s = "\n" + " "*LINE_LENGTH
-                        print(s, end='',flush=True)
-                    print(Ansi.UP*AzuBar.total, end="", flush=True)
+                        render_buffer += "\n" + " "*LINE_LENGTH
+                    render_buffer += Ansi.UP*AzuBar.total
                     tail = "\n"
                     AzuBar.total = 0
                     AzuBar.max = 0
@@ -395,7 +391,7 @@ class prange(Generic[T]):
                     s = "\r" + " "*LINE_LENGTH
                 else:
                     while AzuBar.bars.top() != self.id:
-                        AzuBar.bars.top().close()
+                        render_buffer += AzuBar.bars.top().close()
                         
                     is_broken = (not self.g_end) if self.is_generator else (self.start < self.stop)
                     if is_broken:
@@ -406,10 +402,13 @@ class prange(Generic[T]):
                     if self.id != 0:
                         AzuBar.total = self.id - 1
                 AzuBar.bars.pop()
-        
-        print(s, end='',flush=True)
-        call_err()
-    
+        render_buffer += s
+        if cout:
+            print(render_buffer, end='',flush=True)
+            call_err()
+        else:
+            return render_buffer
+
     def close(self):
         """force bar close
         """
