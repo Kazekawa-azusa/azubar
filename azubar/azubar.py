@@ -308,7 +308,7 @@ class prange(Generic[T]):
             case 'init' | 'loop' | 'done':
                 return self.__fill(outer_len)
 
-    def __cout(self, task: Literal["init","loop","done"]) -> None:
+    def __cout(self, task: Literal["init","loop","done"], cout: bool = True) -> None:
         """print control"""
         if SHOW == False:
             if task == 'done':
@@ -316,27 +316,45 @@ class prange(Generic[T]):
                 if AzuBar.bars.is_empty:
                     AzuBar.total = 0
             return
-        
+
+        # FPS
+        import time
+        current_time = time.time()
+        if task == 'loop':
+            if current_time - getattr(self, '_last_print_time', 0) < 0.033:
+                return
+        self._last_print_time = current_time
+
         if IS_JUPYTER:
             from IPython.display import clear_output # type: ignore
-            
-            if task == 'done':
-                while not AzuBar.bars.is_empty and getattr(AzuBar.bars.top(), 'id', -1) != self.id:
-                    AzuBar.bars.top().close()
-                if not AzuBar.bars.is_empty:
-                    AzuBar.bars.pop()
 
-            clear_output(wait=False)
+            while not AzuBar.bars.is_empty and getattr(AzuBar.bars.top(), 'id', -1) != self.id:
+                popped = AzuBar.bars.pop()
+                if hasattr(popped, '_closed'): popped._closed = True
+            
+            out_str = []
             for bar in AzuBar.bars:
                 b_add = " >" * getattr(bar, 'id', 0)
-                print(b_add + bar.__template('loop', len(b_add)), flush=True)
-                
+                current_task = task if getattr(bar, 'id', -1) == self.id else 'loop'
+                out_str.append(b_add + bar.__template(current_task, len(b_add)))
+            
+            clear_output(wait=True)
+            if out_str:
+                print("\n".join(out_str), flush=True)
+            
+            if task == 'done':
+                if not AzuBar.bars.is_empty and getattr(AzuBar.bars.top(), 'id', -1) == self.id:
+                    popped = AzuBar.bars.pop()
+                    if hasattr(popped, '_closed'): popped._closed = True
+                    
             call_err()
             return
 
         head = "\r"
         add = " >"*(self.id)
         tail = ""
+        render_buffer = ""
+
         match task:
             case "init"|"loop":
                 if AzuBar.bars.top() == self.id and task == 'init' and self.id != 0:
@@ -395,7 +413,7 @@ class prange(Generic[T]):
     def close(self):
         """force bar close
         """
-        self.__cout('done')
+        return self.__cout('done', False)
 
     def __enter__(self):
         return self
