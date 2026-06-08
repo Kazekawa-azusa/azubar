@@ -5,7 +5,7 @@ by Kazekawa-azusa
 from .azubar import prange, loop, BarLike, SpinnerLike
 
 __author__ = "kazekawa-azusa"
-__version__ = "0.0.4"
+__version__ = "0.0.4.1"
 __license__ = "MIT"
 __all__ = ['prange', 'loop', 'BarLike', 'SpinnerLike']
 

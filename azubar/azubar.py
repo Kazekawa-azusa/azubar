@@ -1,14 +1,36 @@
 import inspect
+import threading
 from typing import get_args, overload, SupportsIndex, Union, Iterator, Generic, Literal, TypeVar
 from collections.abc import Iterable
+import unicodedata
 
 from azubar.bars import _Formatter, BarLike, SpinnerLike, actual_len
 from .helper import ANSI_DICT, Stack, Ansi, _type_checker
-from queue import Queue
 import atexit
 import shutil
 import re
-from wcwidth import wcswidth
+
+import os
+import sys
+if os.name == 'nt':
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.GetStdHandle(-11)
+    mode = ctypes.c_ulong()
+    kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+    kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+
+def is_jupyter() -> bool:
+    try:
+        from IPython import get_ipython # type: ignore
+        shell = get_ipython().__class__.__name__
+        if get_ipython() is not None and 'Terminal' not in shell:
+            return True
+    except Exception:
+        pass
+    return False
+
+IS_JUPYTER = is_jupyter()
 
 __all__ = ['prange', 'loop']
 
@@ -18,20 +40,71 @@ LINE_COUNT = terminal_size.lines
 OPEN_ERR_REMINDER = True
 SHOW = True
 
-def real_terminal_len(text: str) -> int:
+def real_len(text: str) -> int:
+    # remove ANSI
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
     clean_text = ansi_escape.sub('', text)
     
+    # remove ASCII control
     clean_text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', clean_text)
     
-    width = wcswidth(clean_text)
-    
-    return width if width >= 0 else len(clean_text)
+    width = 0
+    for char in clean_text:
+        category = unicodedata.category(char)
+
+        if category in ('Mn', 'Me', 'Cf'):
+            continue
+        
+        if unicodedata.east_asian_width(char) in ('W', 'F'):
+            width += 2
+        else:
+            width += 1
+            
+    return width
+
+class ErrorTracker:
+    def __init__(self):
+        self._grouped: dict[tuple[int, int, str], int] = {}
+        self._uniques: list[str] = []
+        self._lock = threading.Lock()
+
+    def put(self, item: tuple[int, int, str]) -> None:
+        """Queue.put"""
+        line_no, err_type, msg = item
+        if line_no == -1:
+            self._uniques.append(msg)
+        else:
+            key = (line_no, err_type, msg)
+            if key not in self._grouped:
+                self._grouped[key] = 1
+            else:
+                self._grouped[key] += 1
+
+    def empty(self) -> bool:
+        return len(self._grouped) == 0 and len(self._uniques) == 0
+
+    def get_formatted_and_clear(self) -> str:
+        with self._lock:
+            buffer = ""
+        
+            for key, count in self._grouped.items():
+                msg = key[2]  # 從 key 裡面把 msg 提取出來
+                suffix = f" (x{count})" if count > 1 else ""
+                buffer += Ansi.RED + msg + suffix + Ansi.RESET + "\n"
+                
+            for msg in self._uniques:
+                buffer += Ansi.RED + msg + Ansi.RESET + "\n"
+
+            self._grouped.clear()
+            self._uniques.clear()
+            
+            return buffer
 
 class AzuBar:
     bars: Stack["prange"] = Stack()
     total = 0
-    err: Queue[tuple[int, int, str]] = Queue()
+    err = ErrorTracker()  
+    max = 0
 
 ERRS = Literal['warning', 'notice']
 _Status = Literal['done', 'miss', 'over']
@@ -40,23 +113,23 @@ T = TypeVar("T")
 
 class prange(Generic[T]):
     @overload
-    def __init__(self, *,title:str, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None, ignore_err: Iterable[ERRS] | ERRS | None = None) -> None: ...
+    def __init__(self, *,title: str = None, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None, ignore_err: Iterable[ERRS] | ERRS | None = None) -> None: ...
     @overload
-    def __init__(self, stop: SupportsIndex, /, *,title: str, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None, ignore_err: Iterable[ERRS] | ERRS | None = None) -> None: ...
+    def __init__(self, stop: SupportsIndex, /, *,title: str = None, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None, ignore_err: Iterable[ERRS] | ERRS | None = None) -> None: ...
     @overload
-    def __init__(self, start: SupportsIndex, stop: SupportsIndex, step: SupportsIndex = ..., /, *,title: str, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None, ignore_err: Iterable[ERRS] | ERRS | None = None) -> None: ...
+    def __init__(self, start: SupportsIndex, stop: SupportsIndex, step: SupportsIndex = ..., /, *,title: str = None, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None, ignore_err: Iterable[ERRS] | ERRS | None = None) -> None: ...
     @overload
-    def __init__(self, obj: Iterable[T], /, *, title: str, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None, ignore_err: Iterable[ERRS] | ERRS | None = None) -> None: ...
+    def __init__(self, obj: Iterable[T], /, *, title: str = None, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None, ignore_err: Iterable[ERRS] | ERRS | None = None) -> None: ...
 
-    def __init__(self, *obj: Union[Iterable[T], SupportsIndex] ,title: str, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None, ignore_err: Iterable[ERRS] | ERRS | None = None):
+    def __init__(self, *obj: Union[Iterable[T], SupportsIndex] ,title: str = None, burn: bool = False, total: int | None = None, bar_style: BarLike | None = None, spinner_style: SpinnerLike | None = None, bar_format: dict | None = None, ignore_err: Iterable[ERRS] | ERRS | None = None):
         """Show bars while using
 
         Parameters
         ----------
         *obj : Iterable, SupportsIndex, optional
             Automatically assign to start, stop, step, or obj. by default 1
-        title : str
-            The name of the bar.
+        title : str, optional
+            The name of the bar. by default None
         burn : bool, optional
             While True, ensure that the bar disappears when it reaches the end. by default False
         total : int, optional
@@ -100,10 +173,11 @@ class prange(Generic[T]):
         self.spinner = SpinnerLike('|/-\\') if spinner_style is None else spinner_style
         self.id = AzuBar.bars.size()
         self.loc = get_lineno()
-        self.title = _type_checker(title,'title',str)
+        self.title = f"bar {self.id}" if title is None else _type_checker(title,'title',str)
         self.burn = _type_checker(burn, 'burn', bool)
         self.status = 'done'
         self.ignor_err = tuple()
+        self._closed = False
         for err in (ignore_err, IGNORE_ERR):
             match err:
                 case None:
@@ -123,9 +197,9 @@ class prange(Generic[T]):
         self.g_stop = None
 
         AzuBar.bars.push(self)
-        AzuBar.total = max(AzuBar.total,self.id)
-        if AzuBar.total >= LINE_COUNT:
-            if 'warning' not in self.ignor_err: AzuBar.err.put((0,1,f"Err: The line of the terminal is not enough. (required: {AzuBar.total+1}, now: {LINE_COUNT})"))
+        AzuBar.max = max(AzuBar.max,self.id)
+        if AzuBar.max+1 > LINE_COUNT:
+            if 'warning' not in self.ignor_err: AzuBar.err.put((0,1,f"Err: The line of the terminal is not enough. (required: {AzuBar.max+1}, now: {LINE_COUNT})"))
         match len(obj):
             case 0:
                 self.obj = enumerate(range(0,1,1))
@@ -263,7 +337,7 @@ class prange(Generic[T]):
         else:
             format_str = format_str.pformat(ratio= f'{(self.start*100/self.stop):6.2f}')
         format_str = format_str.pformat(spinner=" ") if self.start == self.stop else format_str.pformat(spinner= self.spinner.make())
-        lenth = real_terminal_len(format_str) + outer_len - 4 # {bar}
+        lenth = real_len(format_str) + outer_len - 4 # {bar}
         format_str = format_str.format(bar=self.bar.make(self.start, self.stop,LINE_LENGTH-lenth))
         self.status = 'done'
         return format_str
@@ -273,56 +347,118 @@ class prange(Generic[T]):
             case 'init' | 'loop' | 'done':
                 return self.__fill(outer_len)
 
-    def __cout(self, task: Literal["init","loop","done"]) -> None:
+    def __cout(self, task: Literal["init","loop","done"], cout: bool = True) -> None:
         """print control"""
         if SHOW == False:
             if task == 'done':
                 AzuBar.bars.pop()
                 if AzuBar.bars.is_empty:
                     AzuBar.total = 0
+                    AzuBar.max = 0
+            return
+
+        if IS_JUPYTER:
+            """FPS""" # WIP
+            import time
+            current_time = time.time()
+            if task == 'loop':
+                if current_time - getattr(self, '_last_print_time', 0) < 0.033:
+                    return
+            self._last_print_time = current_time
+
+            from IPython.display import clear_output # type: ignore
+
+            while not AzuBar.bars.is_empty and getattr(AzuBar.bars.top(), 'id', -1) != self.id:
+                popped = AzuBar.bars.pop()
+                if hasattr(popped, '_closed'): popped._closed = True
+            
+            out_str = []
+            for bar in AzuBar.bars:
+                b_add = " >" * getattr(bar, 'id', 0)
+                current_task = task if getattr(bar, 'id', -1) == self.id else 'loop'
+                out_str.append(b_add + bar.__template(current_task, len(b_add)))
+            
+            clear_output(wait=True)
+            if out_str:
+                print("\n".join(out_str), flush=True)
+            
+            if task == 'done':
+                if not AzuBar.bars.is_empty and getattr(AzuBar.bars.top(), 'id', -1) == self.id:
+                    popped = AzuBar.bars.pop()
+                    if hasattr(popped, '_closed'): popped._closed = True
+                    
+            call_err()
             return
 
         head = "\r"
         add = " >"*(self.id)
         tail = ""
+        render_buffer = ""
+
         match task:
             case "init"|"loop":
                 if AzuBar.bars.top() == self.id and task == 'init' and self.id != 0:
                     add = "\n" + add
-                elif AzuBar.total > self.id:
-                    times = AzuBar.total - self.id
-                    for _ in range(times):
-                        if AzuBar.bars.top() != self.id:
-                            AzuBar.bars.pop()
-                            s = '\r' + " "*LINE_LENGTH
-                        else:
-                            s = "\n" + " "*LINE_LENGTH
-                        print(s, end='',flush=True)
-                    print(Ansi.UP*times, end="", flush=True)
-                    AzuBar.total = self.id
+                while AzuBar.bars.top() != self.id:
+                    render_buffer += "\r" + " "*LINE_LENGTH + Ansi.UP
+                    AzuBar.bars.pop()
+                    AzuBar.total -= 1  
+                
+                if AzuBar.bars.top() == self.id:
+                    count = AzuBar.max - self.id
+                    render_buffer += "\n"*count
+                    for _ in range(count):
+                        render_buffer += "\r" + " "*LINE_LENGTH + Ansi.UP
+                    
                 s = head + add + self.__template(task, self.id*2) + tail
+                AzuBar.total = self.id
 
             case "done":
                 tail = Ansi.UP
-                if AzuBar.bars.size() == 1:
+                if self.id == 0:
+                    count = AzuBar.max - self.id
+                    render_buffer += "\n"*count
+                    for _ in range(count):
+                        render_buffer += "\r" + " "*LINE_LENGTH + Ansi.UP
                     for _ in range(AzuBar.total):
-                        s = "\n" + " "*LINE_LENGTH
-                        print(s, end='',flush=True)
-                    print(Ansi.UP*AzuBar.total, end="", flush=True)
+                        render_buffer += "\n" + " "*LINE_LENGTH
+                    render_buffer += Ansi.UP*AzuBar.total
                     tail = "\n"
                     AzuBar.total = 0
-                if self.burn == True and AzuBar.bars.size() == 1:
+                    AzuBar.max = 0
+                    
+                if self.burn == True and self.id == 0:
                     s = "\r" + " "*LINE_LENGTH
                 else:
-                    while AzuBar.bars.top() != self.id: # deal with unclosed nested bar
-                        s = "\r" + " "*LINE_LENGTH
-                        print(s, end=Ansi.UP, flush=True)
-                        AzuBar.bars.pop()
-                    s = head + add + self.__template(task, len(add)) + tail
+                    while not AzuBar.bars.empty() and AzuBar.bars.top() != self.id:
+                        render_buffer += AzuBar.bars.top().close()
+                        
+                    is_broken = (not self.g_end) if self.is_generator else (self.start < self.stop)
+                    if is_broken:
+                        s = "\r" + tail 
+                    else:
+                        s = head + add + self.__template(task, len(add)) + tail
+                    
+                    if self.id != 0:
+                        AzuBar.total = self.id - 1
                 AzuBar.bars.pop()
-        
-        print(s, end='',flush=True)
-        call_err()
+        render_buffer += s
+        if cout:
+            print(render_buffer, end='',flush=True)
+            call_err()
+        else:
+            return render_buffer
+
+    def close(self):
+        """force bar close
+        """
+        return self.__cout('done', False)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.__cout('done')
 
 
 def get_lineno(depth: int= 2) -> tuple[int, str]:
@@ -371,31 +507,28 @@ def loop(repeat: int= 1, status: _Status= 'done'):
                 self.start -= 1
     call_err()
 
-def call_err():
+def call_err(is_exit: bool = False):
     """print Err after the prange.
     """
     if SHOW == False or OPEN_ERR_REMINDER == False: return
     
+    if not is_exit:
+        return
     if AzuBar.bars.is_empty:
-        done:set[tuple[int,int]] = set()
-        while not AzuBar.err.empty():
-            err = AzuBar.err.get()
-            if err[0] == -1 or err[0:2] not in done:
-                done.add(err[0:2])
-                s = Ansi.RED + err[2] + Ansi.RESET
-                print(s, flush=True)
+        if AzuBar.err.empty(): return
+        error_output = AzuBar.err.get_formatted_and_clear()
+        print(error_output, end="", flush=True)
 
 def inexit():
     if SHOW == False: return
     if not AzuBar.bars.empty():
-        for _ in range(AzuBar.total + 2 - AzuBar.bars.size()):
-            print(flush=True)
+        print("\n"*(AzuBar.max - AzuBar.bars.size()),flush=True)
         AzuBar.total = 0
     
     if OPEN_ERR_REMINDER == False: return
     while not AzuBar.bars.empty():
         self = AzuBar.bars.pop()
         if 'warning' not in self.ignor_err: AzuBar.err.put((self.loc[0], 4, f'Err in "{self.loc[1]}", line {self.loc[0]}:\n  prange( title= "{self.title}" ) didn\'t close.'))
-    call_err()
+    call_err(is_exit=True)
 
 atexit.register(inexit)
