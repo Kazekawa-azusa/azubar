@@ -10,6 +10,28 @@ import atexit
 import shutil
 import re
 
+import os
+import sys
+if os.name == 'nt':
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.GetStdHandle(-11)
+    mode = ctypes.c_ulong()
+    kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+    kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+
+def is_jupyter() -> bool:
+    try:
+        from IPython import get_ipython # type: ignore
+        shell = get_ipython().__class__.__name__
+        if get_ipython() is not None and 'Terminal' not in shell:
+            return True
+    except Exception:
+        pass
+    return False
+
+IS_JUPYTER = is_jupyter()
+
 __all__ = ['prange', 'loop']
 
 terminal_size = shutil.get_terminal_size(fallback=(80, 4))
@@ -44,6 +66,7 @@ class AzuBar:
     bars: Stack["prange"] = Stack()
     total = 0
     err: Queue[tuple[int, int, str]] = Queue()
+    max = 0
 
 ERRS = Literal['warning', 'notice']
 _Status = Literal['done', 'miss', 'over']
@@ -112,7 +135,7 @@ class prange(Generic[T]):
         self.spinner = SpinnerLike('|/-\\') if spinner_style is None else spinner_style
         self.id = AzuBar.bars.size()
         self.loc = get_lineno()
-        self.title = self.id if title is None else _type_checker(title,'title',str)
+        self.title = f"bar {self.id}" if title is None else _type_checker(title,'title',str)
         self.burn = _type_checker(burn, 'burn', bool)
         self.status = 'done'
         self.ignor_err = tuple()
@@ -135,7 +158,7 @@ class prange(Generic[T]):
         self.g_stop = None
 
         AzuBar.bars.push(self)
-        AzuBar.total = max(AzuBar.total,self.id)
+        AzuBar.max = max(AzuBar.max,self.id)
         if AzuBar.total >= LINE_COUNT:
             if 'warning' not in self.ignor_err: AzuBar.err.put((0,1,f"Err: The line of the terminal is not enough. (required: {AzuBar.total+1}, now: {LINE_COUNT})"))
         match len(obj):
@@ -293,6 +316,23 @@ class prange(Generic[T]):
                 if AzuBar.bars.is_empty:
                     AzuBar.total = 0
             return
+        
+        if IS_JUPYTER:
+            from IPython.display import clear_output # type: ignore
+            
+            if task == 'done':
+                while not AzuBar.bars.is_empty and getattr(AzuBar.bars.top(), 'id', -1) != self.id:
+                    AzuBar.bars.top().close()
+                if not AzuBar.bars.is_empty:
+                    AzuBar.bars.pop()
+
+            clear_output(wait=False)
+            for bar in AzuBar.bars:
+                b_add = " >" * getattr(bar, 'id', 0)
+                print(b_add + bar.__template('loop', len(b_add)), flush=True)
+                
+            call_err()
+            return
 
         head = "\r"
         add = " >"*(self.id)
@@ -304,9 +344,15 @@ class prange(Generic[T]):
                 while AzuBar.bars.top() != self.id:
                     s = "\r" + " "*LINE_LENGTH
                     print(s, end=Ansi.UP, flush=True)
-                    popped = AzuBar.bars.pop()
-                    if hasattr(popped, '_closed'): popped._closed = True
+                    AzuBar.bars.pop()
                     AzuBar.total -= 1  
+                
+                if AzuBar.bars.top() == self.id:
+                    count = AzuBar.max - self.id
+                    print("\n"*count, end="", flush=True)
+                    for _ in range(count):
+                        s = "\r" + " "*LINE_LENGTH
+                        print(s, end=Ansi.UP, flush=True)
                     
                 s = head + add + self.__template(task, self.id*2) + tail
                 AzuBar.total = self.id
@@ -314,23 +360,24 @@ class prange(Generic[T]):
             case "done":
                 tail = Ansi.UP
                 if self.id == 0:
+                    count = AzuBar.max - self.id
+                    print("\n"*count, end="", flush=True)
+                    for _ in range(count):
+                        s = "\r" + " "*LINE_LENGTH
+                        print(s, end=Ansi.UP, flush=True)
                     for _ in range(AzuBar.total):
                         s = "\n" + " "*LINE_LENGTH
                         print(s, end='',flush=True)
                     print(Ansi.UP*AzuBar.total, end="", flush=True)
                     tail = "\n"
                     AzuBar.total = 0
+                    AzuBar.max = 0
                     
                 if self.burn == True and self.id == 0:
                     s = "\r" + " "*LINE_LENGTH
                 else:
                     while AzuBar.bars.top() != self.id:
-                        s = "\r" + " "*LINE_LENGTH
-                        print(s, end=Ansi.UP, flush=True)
-                        popped = AzuBar.bars.pop()
-                        if hasattr(popped, '_closed'): popped._closed = True
-                        
-                        AzuBar.total -= 1
+                        AzuBar.bars.top().close()
                         
                     is_broken = (not self.g_end) if self.is_generator else (self.start < self.stop)
                     if is_broken:
@@ -340,12 +387,15 @@ class prange(Generic[T]):
                     
                     if self.id != 0:
                         AzuBar.total = self.id - 1
-                    else:
-                        AzuBar.total = 0
                 AzuBar.bars.pop()
         
         print(s, end='',flush=True)
         call_err()
+    
+    def close(self):
+        """force bar close
+        """
+        self.__cout('done')
 
     def __enter__(self):
         return self
@@ -417,7 +467,7 @@ def call_err():
 def inexit():
     if SHOW == False: return
     if not AzuBar.bars.empty():
-        for _ in range(AzuBar.total + 2 - AzuBar.bars.size()):
+        for _ in range(AzuBar.max - AzuBar.bars.size()):
             print(flush=True)
         AzuBar.total = 0
     
