@@ -1,11 +1,11 @@
 import inspect
+import threading
 from typing import get_args, overload, SupportsIndex, Union, Iterator, Generic, Literal, TypeVar
 from collections.abc import Iterable
 import unicodedata
 
 from azubar.bars import _Formatter, BarLike, SpinnerLike, actual_len
 from .helper import ANSI_DICT, Stack, Ansi, _type_checker
-from queue import Queue
 import atexit
 import shutil
 import re
@@ -62,10 +62,48 @@ def real_len(text: str) -> int:
             
     return width
 
+class ErrorTracker:
+    def __init__(self):
+        self._grouped: dict[tuple[int, int, str], int] = {}
+        self._uniques: list[str] = []
+        self._lock = threading.Lock()
+
+    def put(self, item: tuple[int, int, str]) -> None:
+        """Queue.put"""
+        line_no, err_type, msg = item
+        if line_no == -1:
+            self._uniques.append(msg)
+        else:
+            key = (line_no, err_type, msg)
+            if key not in self._grouped:
+                self._grouped[key] = 1
+            else:
+                self._grouped[key] += 1
+
+    def empty(self) -> bool:
+        return len(self._grouped) == 0 and len(self._uniques) == 0
+
+    def get_formatted_and_clear(self) -> str:
+        with self._lock:
+            buffer = ""
+        
+            for key, count in self._grouped.items():
+                msg = key[2]  # 從 key 裡面把 msg 提取出來
+                suffix = f" (x{count})" if count > 1 else ""
+                buffer += Ansi.RED + msg + suffix + Ansi.RESET + "\n"
+                
+            for msg in self._uniques:
+                buffer += Ansi.RED + msg + Ansi.RESET + "\n"
+
+            self._grouped.clear()
+            self._uniques.clear()
+            
+            return buffer
+
 class AzuBar:
     bars: Stack["prange"] = Stack()
     total = 0
-    err: Queue[tuple[int, int, str]] = Queue()
+    err = ErrorTracker()  
     max = 0
 
 ERRS = Literal['warning', 'notice']
@@ -139,6 +177,7 @@ class prange(Generic[T]):
         self.burn = _type_checker(burn, 'burn', bool)
         self.status = 'done'
         self.ignor_err = tuple()
+        self._closed = False
         for err in (ignore_err, IGNORE_ERR):
             match err:
                 case None:
@@ -159,8 +198,8 @@ class prange(Generic[T]):
 
         AzuBar.bars.push(self)
         AzuBar.max = max(AzuBar.max,self.id)
-        if AzuBar.total >= LINE_COUNT:
-            if 'warning' not in self.ignor_err: AzuBar.err.put((0,1,f"Err: The line of the terminal is not enough. (required: {AzuBar.total+1}, now: {LINE_COUNT})"))
+        if AzuBar.max+1 > LINE_COUNT:
+            if 'warning' not in self.ignor_err: AzuBar.err.put((0,1,f"Err: The line of the terminal is not enough. (required: {AzuBar.max+1}, now: {LINE_COUNT})"))
         match len(obj):
             case 0:
                 self.obj = enumerate(range(0,1,1))
@@ -315,17 +354,18 @@ class prange(Generic[T]):
                 AzuBar.bars.pop()
                 if AzuBar.bars.is_empty:
                     AzuBar.total = 0
+                    AzuBar.max = 0
             return
 
-        # FPS
-        import time
-        current_time = time.time()
-        if task == 'loop':
-            if current_time - getattr(self, '_last_print_time', 0) < 0.033:
-                return
-        self._last_print_time = current_time
-
         if IS_JUPYTER:
+            """FPS""" # WIP
+            import time
+            current_time = time.time()
+            if task == 'loop':
+                if current_time - getattr(self, '_last_print_time', 0) < 0.033:
+                    return
+            self._last_print_time = current_time
+
             from IPython.display import clear_output # type: ignore
 
             while not AzuBar.bars.is_empty and getattr(AzuBar.bars.top(), 'id', -1) != self.id:
@@ -390,7 +430,7 @@ class prange(Generic[T]):
                 if self.burn == True and self.id == 0:
                     s = "\r" + " "*LINE_LENGTH
                 else:
-                    while AzuBar.bars.top() != self.id:
+                    while not AzuBar.bars.empty() and AzuBar.bars.top() != self.id:
                         render_buffer += AzuBar.bars.top().close()
                         
                     is_broken = (not self.g_end) if self.is_generator else (self.start < self.stop)
@@ -467,31 +507,28 @@ def loop(repeat: int= 1, status: _Status= 'done'):
                 self.start -= 1
     call_err()
 
-def call_err():
+def call_err(is_exit: bool = False):
     """print Err after the prange.
     """
     if SHOW == False or OPEN_ERR_REMINDER == False: return
     
+    if not is_exit:
+        return
     if AzuBar.bars.is_empty:
-        done:set[tuple[int,int]] = set()
-        while not AzuBar.err.empty():
-            err = AzuBar.err.get()
-            if err[0] == -1 or err[0:2] not in done:
-                done.add(err[0:2])
-                s = Ansi.RED + err[2] + Ansi.RESET
-                print(s, flush=True)
+        if AzuBar.err.empty(): return
+        error_output = AzuBar.err.get_formatted_and_clear()
+        print(error_output, end="", flush=True)
 
 def inexit():
     if SHOW == False: return
     if not AzuBar.bars.empty():
-        for _ in range(AzuBar.max - AzuBar.bars.size()):
-            print(flush=True)
+        print("\n"*(AzuBar.max - AzuBar.bars.size()),flush=True)
         AzuBar.total = 0
     
     if OPEN_ERR_REMINDER == False: return
     while not AzuBar.bars.empty():
         self = AzuBar.bars.pop()
         if 'warning' not in self.ignor_err: AzuBar.err.put((self.loc[0], 4, f'Err in "{self.loc[1]}", line {self.loc[0]}:\n  prange( title= "{self.title}" ) didn\'t close.'))
-    call_err()
+    call_err(is_exit=True)
 
 atexit.register(inexit)
